@@ -183,12 +183,22 @@ graph TD
 ---
 
 ## 8. Observabilidade
-* **Logs Operacionais (Pino):** O worker registra logs estruturados no padrão JSON em todas as etapas críticas:
-  * `info` ao localizar novos eventos de outbox pendentes.
-  * `warn` em cada tentativa falha, reportando status HTTP e ID da tentativa.
-  * `error` ao despachar um evento para a DLQ.
-  * `info` para auditoria administrativa de reenvio com o ID do administrador.
-* **Métricas de Performance:** Cálculo e gravação de `responseTimeMs` (tempo de resposta do servidor do cliente) em cada tentativa no histórico de entregas.
+* **Logs Operacionais (Pino):** O worker e a API registram logs estruturados em formato JSON para todas as etapas do fluxo:
+  * `info` ao criar o evento na outbox no banco de dados.
+  * `info` ao localizar novos eventos pendentes para processamento no polling do worker.
+  * `warn` em cada tentativa de envio mal-sucedida, reportando o código HTTP e o contador de tentativas.
+  * `error` ao despachar um evento permanentemente falho para a DLQ.
+  * `info` para auditoria de ações de replay administrativo de DLQ, registrando o ID do administrador solicitante.
+* **Métricas de Performance:** Medição e armazenamento de dados operacionais essenciais:
+  * `responseTimeMs`: Tempo de latência de rede/resposta do servidor do cliente para cada tentativa de envio.
+  * Contador cumulativo de tentativas de envio por webhook e taxa de sucesso/falha de entregas.
+* **Tracing (Rastreabilidade Fim a Fim):**
+  * **Correlation / Event ID:** O UUID único gerado para cada evento da outbox (`eventId`) atuará como o identificador de correlação (`correlation_id`) do fluxo.
+  * **Propagação de Contexto:** 
+    1. **Geração na API:** Ao alterar o status de um pedido, a API Express captura ou gera o `correlation_id` e o persiste na tabela `webhook_events_outbox`.
+    2. **Consumo no Worker:** Ao realizar o polling e carregar o evento, o worker injeta este `correlation_id` em todos os logs do Pino daquele ciclo de execução como `traceId`, permitindo agrupar todos os logs de envio e retentativa daquele evento específico.
+    3. **Envio HTTP:** O worker envia o identificador no cabeçalho HTTP **`X-Event-Id`** (e no cabeçalho padrão de tracing **`X-Correlation-Id`**), permitindo que o cliente B2B correlacione a notificação com logs de auditoria de entrada.
+    4. **DLQ e Replay:** Se o evento falhar definitivamente e for para a DLQ ou passar por reprocessamento manual, o mesmo `correlation_id` é preservado e propagado no reenvio, permitindo rastrear o histórico completo daquele ciclo de vida.
 
 ---
 
